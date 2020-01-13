@@ -39,7 +39,7 @@ metadata {
 		fingerprint profileId: "C05E", inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300, FFFF", outClusters: "0019", manufacturer: "Megaman", model: "ZLL-ExtendedColor", deviceJoinName: "INGENIUM ZB RGBW Light"
 
 		// Innr
-		fingerprint profileId: "C05E", inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300", outClusters: "0019", manufacturer: "innr", model: "RB 185 C", deviceJoinName: "Innr Smart Bulb Color"
+		fingerprint profileId: "C05E", inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300", outClusters: "0019", manufacturer: "innr", model: "RB 185 C", deviceJoinName: "Innr Smart Bulb Color", mnmn:"SmartThings", "generic-rgbw-color-bulb-1800K-6500K"
 		fingerprint profileId: "C05E", inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300", outClusters: "0019", manufacturer: "innr", model: "FL 130 C", deviceJoinName: "Innr Flex Light Color"
 
 		// OSRAM
@@ -208,6 +208,10 @@ def updated() {
 def installed() {
 	sendEvent(name: "checkInterval", value: 2 * 10 * 60 + 1 * 60, displayed: false, data: [protocol: "zigbee", hubHardwareId: device.hub.hardwareID])
 	configureHealthCheck()
+
+	if (isInnr185C()) {
+		sendHubCommand(zigbee.command(COLOR_CONTROL_CLUSTER, MOVE_TO_HUE_AND_SATURATION_COMMAND, getScaledHue(0), getScaledSaturation(0), "0000"))
+	}
 }
 
 def setColorTemperature(value) {
@@ -269,4 +273,8 @@ def setSaturation(value) {
 	//payload-> sat value, transition time
 	zigbee.command(COLOR_CONTROL_CLUSTER, SATURATION_COMMAND, getScaledSaturation(value), "0000") +
 	zigbee.readAttribute(COLOR_CONTROL_CLUSTER, ATTRIBUTE_SATURATION)
+}
+
+private boolean isInnr185C() {
+	device.getDataValue("model") == "RB 185 C"
 }
