@@ -31,6 +31,12 @@ metadata {
 		fingerprint inClusters: "0000, 0001, 0003, 0007, 0020, 0B05", outClusters: "0003, 0006, 0019", manufacturer: "CentraLite", model:"3450-L", deviceJoinName: "Iris KeyFob", mnmn: "SmartThings", vid: "generic-4-button"
 		fingerprint inClusters: "0000, 0001, 0003, 0007, 0020, 0B05", outClusters: "0003, 0006, 0019", manufacturer: "CentraLite", model:"3450-L2", deviceJoinName: "Iris KeyFob", mnmn: "SmartThings", vid: "generic-4-button"
 		fingerprint profileId: "0104", inClusters: "0004", outClusters: "0000, 0001, 0003, 0004, 0005, 0B05", manufacturer: "HEIMAN", model: "SceneSwitch-EM-3.0", deviceJoinName: "HEIMAN Scene Keypad", vid: "generic-4-button"
+
+		//AduroSmart
+		fingerprint inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300, FCCC, 1000", outClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300, FCCC, 1000", manufacturer: "AduroSmart Eria", model: "ADUROLIGHT_CSC", deviceJoinName: "Eria scene button switch V2.1", mnmn: "SmartThings", vid: "generic-4-button"
+		fingerprint inClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300, FCCC, 1000", outClusters: "0000, 0003, 0004, 0005, 0006, 0008, 0300, FCCC, 1000", manufacturer: "ADUROLIGHT", model: "ADUROLIGHT_CSC", deviceJoinName: "Eria scene button switch V2.0", mnmn: "SmartThings", vid: "generic-4-button"
+		fingerprint inClusters: "0000, 0003, 0008, FCCC, 1000", outClusters: "0003, 0004, 0006, 0008, FCCC, 1000", manufacturer: "AduroSmart Eria", model: "Adurolight_NCC", deviceJoinName: "Eria dimming button switch V2.1", mnmn: "SmartThings", vid: "generic-4-button"
+		fingerprint inClusters: "0000, 0003, 0008, FCCC, 1000", outClusters: "0003, 0004, 0006, 0008, FCCC, 1000", manufacturer: "ADUROLIGHT", model: "Adurolight_NCC", deviceJoinName: "Eria dimming button switch V2.0", mnmn: "SmartThings", vid: "generic-4-button"
 	}
 
 	tiles {
@@ -66,19 +72,18 @@ def parseAttrMessage(description) {
 	def map = [:]
 	if (descMap?.clusterInt == zigbee.POWER_CONFIGURATION_CLUSTER && descMap.commandInt != 0x07 && descMap?.value) {
 		map = getBatteryPercentageResult(Integer.parseInt(descMap.value, 16))
-	} else if (descMap?.clusterInt == zigbee.ONOFF_CLUSTER && descMap.isClusterSpecific) {
+	} else if (isAduroSmartRemote()) {
+		map = parseAduroSmartButtonMessage(descMap)
+    	} else if (descMap?.clusterInt == zigbee.ONOFF_CLUSTER && descMap.isClusterSpecific) {
 		map = getButtonEvent(descMap)
 	} else if(descMap?.clusterInt == 0xFC80) {
 		def buttonNumber
 		buttonNumber = Integer.valueOf(descMap?.command[1].toInteger()) + 1
        
 		log.debug "Number is ${buttonNumber}"
-		def event = createEvent(name: "button", value: "pushed", data: [buttonNumber: buttonNumber], descriptionText: "pushed", isStateChange: true)
-		if (buttonNumber != 1) {
-			sendEventToChild(buttonNumber, event)
-		} else {
-			sendEvent(event)
-		}
+		def descriptionText = getButtonName() + " ${buttonNumber} was pushed"
+		sendEventToChild(buttonNumber, createEvent(name: "button", value: "pushed", data: [buttonNumber: buttonNumber], descriptionText: descriptionText, isStateChange: true))
+		map = createEvent(name: "button", value: "pushed", data: [buttonNumber: buttonNumber], descriptionText: descriptionText, isStateChange: true)
    	}
 	map
 }
@@ -101,7 +106,7 @@ def getButtonResult(buttonState, buttonNumber = 1) {
 			return event
 		} else {
 			buttonState = timeDiff < holdTime ? "pushed" : "held"
-			def descriptionText = (device.displayName.endsWith(' 1') ? "${device.displayName[0..-2]} button" : "${device.displayName}") + " ${buttonNumber} was ${buttonState}"
+			def descriptionText = getButtonName() + " ${buttonNumber} was ${buttonState}"
 			event = createEvent(name: "button", value: buttonState, data: [buttonNumber: buttonNumber], descriptionText: descriptionText, isStateChange: true)
 			sendEventToChild(buttonNumber, event)
 			return createEvent(descriptionText: descriptionText)
@@ -187,7 +192,11 @@ private addChildButtons(numberOfButtons) {
 	for(def endpoint : 1..numberOfButtons) {
 		try {
 			String childDni = "${device.deviceNetworkId}:$endpoint"
-			def componentLabel = (device.displayName.endsWith(' 1') ? device.displayName[0..-2] : device.displayName) + "${endpoint}"
+			def componentLabel = getButtonName() + "${endpoint}"
+
+			if (isAduroSmartRemote()) {
+				componentLabel = device.displayName + " - ${endpoint}"
+			}
 			def child = addChildDevice("Child Button", childDni, device.getHub().getId(), [
 					completedSetup: true,
 					label         : componentLabel,
@@ -224,6 +233,8 @@ private getSupportedButtonValues() {
 	def values
 	if (device.getDataValue("model") == "SceneSwitch-EM-3.0") {
 		values = ["pushed"]
+	} else if (isAduroSmartRemote()) {
+		values = ["pushed"]
 	} else {
 		values = ["pushed", "held"]
 	}
@@ -233,7 +244,9 @@ private getSupportedButtonValues() {
 private getModelNumberOfButtons() {[
 		"3450-L" : 4,
 		"3450-L2" : 4,
-		"SceneSwitch-EM-3.0" : 4
+		"SceneSwitch-EM-3.0" : 4, 
+		"ADUROLIGHT_CSC" : 4,
+		"Adurolight_NCC" : 4
 ]}
 
 private getModelBindings(model) {
@@ -241,5 +254,53 @@ private getModelBindings(model) {
 	for(def endpoint : 1..modelNumberOfButtons[model]) {
 		bindings += zigbee.addBinding(zigbee.ONOFF_CLUSTER, ["destEndpoint" : endpoint])
 	}
+	if (isAduroSmartRemote()) {
+		bindings += zigbee.addBinding(zigbee.LEVEL_CONTROL_CLUSTER, ["destEndpoint" : 2]) + 
+			zigbee.addBinding(zigbee.LEVEL_CONTROL_CLUSTER, ["destEndpoint" : 3])
+	}
 	bindings
 }
+
+private getButtonName() {
+	def values = device.displayName.endsWith(' 1') ? "${device.displayName[0..-2]}" : "${device.displayName}"
+	return values
+}
+
+private Map parseAduroSmartButtonMessage(Map descMap){
+	def buttonState = "pushed"
+	def buttonNumber = 0
+	if (descMap.clusterInt == zigbee.ONOFF_CLUSTER) {
+		if (descMap.command == "01") {
+		    buttonNumber = 1
+		} else if (descMap.command == "00") {
+		    buttonNumber = 4
+		}
+	} else if (descMap.clusterInt == zigbee.LEVEL_CONTROL_CLUSTER) {
+		if (descMap.command == "02") {
+		    def data = descMap.data
+		    def d0 = data[0]
+		    if (d0 == "00") {
+			buttonNumber = 2
+		    } else if (d0 == "01") {
+			buttonNumber = 3
+		    }
+		}
+	} else if (descMap.clusterInt == ADUROSMART_SPECIFIC_CLUSTER) {
+		def list2 = descMap.data
+		buttonNumber = (list2[1] as int) + 1
+	}
+	if (buttonNumber != 0) {
+		def childevent = createEvent(name: "button", value: "pushed", data: [buttonNumber: 1], isStateChange: true)
+		sendEventToChild(buttonNumber, childevent)
+		def descriptionText = "$device.displayName button $buttonNumber was $buttonState"
+		return createEvent(name: "button", value: buttonState, data: [buttonNumber: buttonNumber], descriptionText: descriptionText, isStateChange: true)
+        } else {
+		return [:]
+	}
+}
+
+def isAduroSmartRemote(){
+	((device.getDataValue("model") == "Adurolight_NCC") || (device.getDataValue("model") == "ADUROLIGHT_CSC"))
+}
+
+def getADUROSMART_SPECIFIC_CLUSTER() {0xFCCC}
