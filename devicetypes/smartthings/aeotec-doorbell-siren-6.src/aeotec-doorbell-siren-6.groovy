@@ -21,12 +21,12 @@ metadata {
 		capability "Alarm"
 		capability "Chime"
 
-		fingerprint mfr: "0371", prod: "0003", model: "00A2", deviceJoinName: "Aeotec Doorbell 6" //EU
-		fingerprint mfr: "0371", prod: "0103", model: "00A2", deviceJoinName: "Aeotec Doorbell 6" //US
-		fingerprint mfr: "0371", prod: "0003", model: "00A4", deviceJoinName: "Aeotec Siren 6" //EU
-		fingerprint mfr: "0371", prod: "0103", model: "00A4", deviceJoinName: "Aeotec Siren 6" //US
-		fingerprint mfr: "0371", prod: "0203", model: "00A4", deviceJoinName: "Aeotec Siren 6" //AU
-		fingerprint mfr: "0371", prod: "0203", model: "00A2", deviceJoinName: "Aeotec Doorbell 6" //AU
+		fingerprint mfr: "0371", prod: "0003", model: "00A2", deviceJoinName: "Aeotec Doorbell 6", ocfDeviceType: "x.com.st.d.doorbell" //EU
+		fingerprint mfr: "0371", prod: "0103", model: "00A2", deviceJoinName: "Aeotec Doorbell 6", ocfDeviceType: "x.com.st.d.doorbell" //US
+		fingerprint mfr: "0371", prod: "0003", model: "00A4", deviceJoinName: "Aeotec Siren 6", ocfDeviceType: "x.com.st.d.siren" //EU
+		fingerprint mfr: "0371", prod: "0103", model: "00A4", deviceJoinName: "Aeotec Siren 6", ocfDeviceType: "x.com.st.d.siren" //US
+		fingerprint mfr: "0371", prod: "0203", model: "00A4", deviceJoinName: "Aeotec Siren 6", ocfDeviceType: "x.com.st.d.siren" //AU
+		fingerprint mfr: "0371", prod: "0203", model: "00A2", deviceJoinName: "Aeotec Doorbell 6", ocfDeviceType: "x.com.st.d.doorbell" //AU
 	}
 
 	tiles {
@@ -89,6 +89,14 @@ def parse(String description) {
 }
 
 def zwaveEvent(physicalgraph.zwave.commands.multichannelv3.MultiChannelCmdEncap cmd) {
+	if (cmd.commandClass == 0x6C && cmd.parameter.size >= 4) { // Supervision encapsulated Message
+		// Supervision header is 4 bytes long, two bytes dropped here are the latter two bytes of the supervision header
+		cmd.parameter = cmd.parameter.drop(2)
+		// Updated Command Class/Command now with the remaining bytes
+		cmd.commandClass = cmd.parameter[0]
+		cmd.command = cmd.parameter[1]
+		cmd.parameter = cmd.parameter.drop(2)
+	}
 	def encapsulatedCommand = cmd.encapsulatedCommand()
 	def endpoint = cmd.sourceEndPoint
 	if (endpoint == state.lastTriggeredSound && encapsulatedCommand != null) {
@@ -190,7 +198,8 @@ def zwaveEvent(physicalgraph.zwave.commands.notificationv3.NotificationReport cm
 	if (cmd.notificationStatus == 0xFF) {
 		switch (cmd.event) {
 			case 0x09: //TAMPER
-				createEvent([name: "tamper", value: "detected"])
+				sendEvent(name: "tamper", value: "detected")
+				runIn(10, "clearTamper")
 				break
 			case 0x01: //ON
 				if (state.lastTriggeredSound == 1) {
@@ -205,6 +214,10 @@ def zwaveEvent(physicalgraph.zwave.commands.notificationv3.NotificationReport cm
 				break
 		}
 	}
+}
+
+def clearTamper() {
+	sendEvent(name: "tamper", value: "clear")
 }
 
 def setOnChild(deviceDni) {
